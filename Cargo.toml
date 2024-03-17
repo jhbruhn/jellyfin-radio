@@ -1,0 +1,24 @@
+[package]
+name = "jellyfin-radio"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.11", features = ["json", "stream"] }
+tokio = { version = "1", features = ["full"] }
+awedio = { version = "0.3", features = ["symphonia-all"], default-features = false }
+anyhow = "1.0"
+mp3lame-encoder = {  git = "https://github.com/jhbruhn/mp3lame-encoder.git", branch = "send-sync" }
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+hyper = { version = "1.2", features = ["server", "http1"] }
+hyper-util = {version = "0.1", features = ["tokio"] }
+bytes = "1.5"
+http-body-util = "0.1"
+async-broadcast = "0.7"
+future-bool = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+symphonia = { version = "0.5.4", features = ["all"] }
+envconfig = "0.10"
