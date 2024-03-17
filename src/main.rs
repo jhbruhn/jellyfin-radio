@@ -76,6 +76,9 @@ async fn main() -> anyhow::Result<()> {
                     println!("Fetching {} - {}", item.artists.join(","), item.name);
                     let sound = client.fetch_audio(item).await?;
                     println!("Fetched Song!");
+                    if sound.channel_count() > 2 {
+                        anyhow::bail!("Too many channels");
+                    }
                     controller.add(Box::new(sound));
                     anyhow::Ok(())
                 }

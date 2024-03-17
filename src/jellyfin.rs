@@ -1,3 +1,4 @@
+use awedio::Sound;
 use bytes::Buf;
 use serde::Deserialize;
 
@@ -154,7 +155,7 @@ impl JellyfinClient {
             Box::new(symphonia::core::io::ReadOnlySource::new(body.reader())),
             extension.as_deref(),
         )?);
-        
+
         Ok(decoder)
     }
 }
