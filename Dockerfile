@@ -5,7 +5,7 @@ RUN ./platform.sh # should write /.platform and /.compiler
 RUN rustup target add $(cat /.platform)
 RUN apt update && apt-get install -y unzip $(cat /.compiler)
 
-WORKDIR ./jellyfin-radio
+WORKDIR /appsrc
 ADD . ./
 RUN cargo build --release --target $(cat /.platform)
 RUN cp ./target/$(cat /.platform)/release/jellyfin-radio /jellyfin-radio.bin # Get rid of this when build --out is stable

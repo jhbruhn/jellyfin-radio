@@ -10,7 +10,7 @@ reqwest = { version = "0.11", features = ["json", "stream", "native-tls-vendored
 tokio = { version = "1", features = ["full"] }
 awedio = { version = "0.3", features = ["symphonia-all"], default-features = false }
 anyhow = "1.0"
-mp3lame-encoder = {  git = "https://github.com/jhbruhn/mp3lame-encoder.git", branch = "send-sync" }
+mp3lame-encoder = {  git = "https://github.com/jhbruhn/mp3lame-encoder.git", branch = "arm" }
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures-util = "0.3"
 hyper = { version = "1.2", features = ["server", "http1"] }

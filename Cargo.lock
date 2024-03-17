@@ -647,7 +647,7 @@ dependencies = [
 [[package]]
 name = "mp3lame-encoder"
 version = "0.1.4"
-source = "git+https://github.com/jhbruhn/mp3lame-encoder.git?branch=send-sync#90471b4a7c7f4059551c615d6fdf2014b1002b15"
+source = "git+https://github.com/jhbruhn/mp3lame-encoder.git?branch=arm#b1994cc6e914ca52cf05cad0db86fe8d319bfa2d"
 dependencies = [
  "libc",
  "mp3lame-sys",
