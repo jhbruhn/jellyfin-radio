@@ -95,17 +95,15 @@ impl Sound for Player {
             self.was_empty = false;
             return Ok(NextSample::MetadataChanged);
         }
-        let next_sample = match next_sound.next_sample() {
-            Ok(s) => s,
-            Err(e) => {
-                self.sounds.remove(0);
-                return Err(e);
-            }
-        };
+        
+        let next_sample = next_sound.next_sample();
+        if let Err(e) = &next_sample {
+            println!("Error playing track: {:?}", e);
+        }
 
         let ret = match next_sample {
-            NextSample::Sample(_) | NextSample::MetadataChanged | NextSample::Paused => next_sample,
-            NextSample::Finished => {
+            Ok(NextSample::Sample(_) | NextSample::MetadataChanged | NextSample::Paused) => next_sample.unwrap(),
+            Ok(NextSample::Finished) | Err(_) => { // Just ignore the error
                 self.sounds.remove(0);
                 if self.sounds.is_empty() {
                     NextSample::Finished
