@@ -8,6 +8,7 @@ pub struct Player {
     sounds: Vec<Box<dyn Sound>>,
     was_empty: bool,
     song_prefetch: u32,
+    volume_adjustment: f32,
 }
 
 type Command<S> = Box<dyn FnOnce(&mut S) + Send>;
@@ -15,23 +16,24 @@ type Command<S> = Box<dyn FnOnce(&mut S) + Send>;
 pub struct PlayerControllable {
     inner: Player,
     command_receiver: mpsc::Receiver<Command<Player>>,
-    queue_next_song_sender: tokio::sync::mpsc::Sender<()>,
+    queue_next_song_sender: tokio::sync::watch::Sender<bool>,
     finished: bool,
 }
 
 pub struct PlayerController {
     command_sender: mpsc::Sender<Command<Player>>,
-    queue_next_song_receiver: tokio::sync::mpsc::Receiver<()>,
+    queue_next_song_receiver: tokio::sync::watch::Receiver<bool>,
 }
 
 impl Player {
     /// Create a new empty Player.
     pub fn new(song_prefetch: u32) -> (PlayerControllable, PlayerController) {
-        let (queue_next_song_sender, queue_next_song_receiver) = tokio::sync::mpsc::channel(1);
+        let (queue_next_song_sender, queue_next_song_receiver) = tokio::sync::watch::channel(false);
         let inner = Player {
             sounds: Vec::new(),
             was_empty: false,
             song_prefetch,
+            volume_adjustment: 1.0,
         };
 
         let (command_sender, command_receiver) = mpsc::channel::<Command<Player>>();
@@ -57,8 +59,12 @@ impl Player {
         self.sounds.push(sound);
     }
 
-    fn last_song_playing_or_empty(&self) -> bool {
-        self.sounds.len() <= self.song_prefetch as usize
+    fn set_volume(&mut self, new: f32) {
+        self.volume_adjustment = new;
+    }
+
+    fn should_prefetch(&self) -> bool {
+        self.sounds.len() < self.song_prefetch as usize
     }
 }
 
@@ -95,15 +101,19 @@ impl Sound for Player {
             self.was_empty = false;
             return Ok(NextSample::MetadataChanged);
         }
-        
+
         let next_sample = next_sound.next_sample();
         if let Err(e) = &next_sample {
             println!("Error playing track: {:?}", e);
         }
 
         let ret = match next_sample {
-            Ok(NextSample::Sample(_) | NextSample::MetadataChanged | NextSample::Paused) => next_sample.unwrap(),
-            Ok(NextSample::Finished) | Err(_) => { // Just ignore the error
+            Ok(NextSample::Sample(s)) => {
+                NextSample::Sample((s as f32 * self.volume_adjustment) as i16)
+            }
+            Ok(NextSample::MetadataChanged | NextSample::Paused) => next_sample.unwrap(),
+            Ok(NextSample::Finished) | Err(_) => {
+                // Just ignore the error
                 self.sounds.remove(0);
                 if self.sounds.is_empty() {
                     NextSample::Finished
@@ -159,9 +169,15 @@ impl Sound for PlayerControllable {
                 }
             }
         }
-        if self.inner.last_song_playing_or_empty() {
-            let _ = self.queue_next_song_sender.try_send(());
-        }
+
+        let _ = self.queue_next_song_sender.send_if_modified(|v| {
+            if *v != self.inner.should_prefetch() {
+                *v = self.inner.should_prefetch();
+                return true;
+            }
+            false
+        });
+
         self.inner.on_start_of_batch();
     }
 }
@@ -175,12 +191,25 @@ impl PlayerController {
     }
 }
 
+impl Clone for PlayerController {
+    fn clone(&self) -> Self {
+        Self {
+            command_sender: self.command_sender.clone(),
+            queue_next_song_receiver: self.queue_next_song_receiver.clone(),
+        }
+    }
+}
+
 impl PlayerController {
     pub fn add(&mut self, sound: Box<dyn Sound>) {
         self.send_command(Box::new(|s: &mut Player| s.add(sound)));
     }
 
+    pub fn set_volume(&mut self, new: f32) {
+        self.send_command(Box::new(move |s: &mut Player| s.set_volume(new)));
+    }
+
     pub async fn wait_for_queue(&mut self) {
-        self.queue_next_song_receiver.recv().await;
+        let _ = self.queue_next_song_receiver.wait_for(|v| *v == true).await;
     }
 }

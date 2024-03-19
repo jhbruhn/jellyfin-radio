@@ -11,11 +11,12 @@ use hyper::service::Service;
 use hyper::{body, Request};
 use hyper::{Response, StatusCode};
 
-const SEGMENT_INTERVAL: u64 = 2; // seconds
 const SAMPLE_RATE: u64 = 48000;
 const CHANNEL_COUNT: u64 = 2;
 
-type Chunk = [i16; (SEGMENT_INTERVAL * SAMPLE_RATE * CHANNEL_COUNT) as usize];
+const BUFFER_SIZE: usize = 2000; // Should be an integer result of 48000 / 2 / x
+
+type Chunk = [i16; BUFFER_SIZE];
 
 pub struct StreamerBackend {
     stream_receiver: Receiver<Box<Chunk>>,
@@ -35,10 +36,10 @@ impl StreamerBackend {
 
         tokio::spawn(async move {
             let mut stream = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
-                Duration::from_secs(SEGMENT_INTERVAL),
+                Duration::from_millis(1000 * BUFFER_SIZE as u64 / CHANNEL_COUNT / SAMPLE_RATE),
             ))
             .map(move |_| {
-                let mut buffer = [0_i16; (SAMPLE_RATE * SEGMENT_INTERVAL * CHANNEL_COUNT) as usize];
+                let mut buffer = [0_i16; BUFFER_SIZE];
                 renderer.on_start_of_batch();
                 buffer.fill_with(|| {
                     let sample = renderer
