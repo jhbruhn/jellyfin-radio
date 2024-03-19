@@ -4,6 +4,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use std::{net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
+use tracing_subscriber::fmt::format::FmtSpan;
 
 mod jellyfin;
 mod player;
@@ -78,6 +79,12 @@ async fn get_time_file_map(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let filter = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| "jellyfin_radio=debug,tracing=info,hyper=info".to_owned());
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_span_events(FmtSpan::CLOSE)
+        .init();
     let config = Config::init_from_env().unwrap();
 
     let client =
@@ -119,7 +126,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::task::yield_now().await;
             player_controller.wait_for_queue().await;
 
-            println!("Queuing song");
+            tracing::info!("Queuing song");
 
             loop {
                 let result = async {
@@ -127,9 +134,9 @@ async fn main() -> anyhow::Result<()> {
                         .random_audio(&admin_user.id, &matched_collection.id)
                         .await?;
 
-                    println!("Fetching {} - {}", item.artists.join(","), item.name);
+                    tracing::info!("Fetching {} - {}", item.artists.join(","), item.name);
                     let sound = client.fetch_audio(item).await?;
-                    println!("Fetched Song!");
+                    tracing::info!("Fetched Song!");
                     if sound.channel_count() > 2 {
                         anyhow::bail!("Too many channels, skipping!");
                     }
@@ -138,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 .await;
                 if let Err(e) = result {
-                    println!("Error fetching new song: {}", e);
+                    tracing::error!("Error fetching new song: {}", e);
                     tokio::time::sleep(Duration::from_secs(1)).await;
                 } else {
                     break;
@@ -151,13 +158,13 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::task::spawn(async move {
         if config.interstitial_path.is_none() {
-            println!("No interstitials, skipping interstitial task. Specify a folder with INTERSTITIAL_PATH.");
+            tracing::info!("No interstitials, skipping interstitial task. Specify a folder with INTERSTITIAL_PATH.");
             return;
         }
 
         let mut time_file_path = std::path::PathBuf::from(config.interstitial_path.unwrap());
         time_file_path.push("time");
-        println!("Looking for time files at {:?}", time_file_path);
+        tracing::info!("Looking for time files at {:?}", time_file_path);
 
         let time_file_map = get_time_file_map(&time_file_path).await;
         loop {
@@ -205,7 +212,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 .unwrap();
 
-                println!(
+                tracing::info!(
                     "Next Internstitial time {interstitial_time}: {:?}",
                     next_path
                 );
@@ -215,7 +222,7 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await;
 
-                println!("Playing interstitial {:?}", next_path);
+                tracing::info!("Playing interstitial {:?}", next_path);
 
                 if let Ok(sound) = awedio::sounds::open_file(next_path.as_path()) {
                     let (sound, completion_notifier) = sound.with_async_completion_notifier();
@@ -234,7 +241,7 @@ async fn main() -> anyhow::Result<()> {
                         tokio::time::sleep(fade_duration / (fade_steps_max - fade_steps_min)).await;
                     }
                 } else {
-                    println!("Error playing interstitial");
+                    tracing::error!("Error playing interstitial");
                 }
             }
         }
@@ -243,17 +250,17 @@ async fn main() -> anyhow::Result<()> {
     streamer_manager.play(Box::new(mixer));
 
     let listener = TcpListener::bind(addr).await?;
-    println!("Listening on http://{}", addr);
+    tracing::info!("Listening on http://{}", addr);
     loop {
         let (tcp, _) = listener.accept().await?;
         let io = TokioIo::new(tcp);
         let backend = streamer_backend.clone();
 
-        println!("New connection!");
+        tracing::debug!("New connection!");
 
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new().serve_connection(io, backend).await {
-                println!("Error serving connection: {:?}", err);
+                tracing::error!("Error serving connection: {:?}", err);
             }
         });
     }

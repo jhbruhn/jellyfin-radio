@@ -25,3 +25,5 @@ envconfig = "0.10"
 chrono = "0.4.35"
 itertools = "0.12.1"
 rand = "0.8.5"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = "0.1"

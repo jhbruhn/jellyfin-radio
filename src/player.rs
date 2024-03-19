@@ -104,7 +104,7 @@ impl Sound for Player {
 
         let next_sample = next_sound.next_sample();
         if let Err(e) = &next_sample {
-            println!("Error playing track: {:?}", e);
+            tracing::error!("Error playing track: {:?}", e);
         }
 
         let ret = match next_sample {
