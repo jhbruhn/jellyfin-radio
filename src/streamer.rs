@@ -40,23 +40,25 @@ impl StreamerBackend {
             ))
             .map(move |_| {
                 let mut buffer = [0_i16; BUFFER_SIZE];
-                renderer.on_start_of_batch();
-                buffer.fill_with(|| {
-                    let sample = renderer
-                        .next_sample()
-                        .expect("renderer should never return an Error");
-                    let sample = match sample {
-                        awedio::NextSample::Sample(s) => s,
-                        awedio::NextSample::MetadataChanged => {
-                            unreachable!("we never change metadata mid-batch")
-                        }
-                        awedio::NextSample::Paused => 0,
-                        awedio::NextSample::Finished => 0,
-                    };
-                    sample
+                    renderer.on_start_of_batch();
+                    tokio::task::block_in_place(|| {
+                        buffer.fill_with(|| {
+                            let sample = renderer
+                                .next_sample()
+                                .expect("renderer should never return an Error");
+                            let sample = match sample {
+                                awedio::NextSample::Sample(s) => s,
+                                awedio::NextSample::MetadataChanged => {
+                                    unreachable!("we never change metadata mid-batch")
+                                }
+                                awedio::NextSample::Paused => 0,
+                                awedio::NextSample::Finished => 0,
+                            };
+                            sample
+                        });
+                    });
+                    Box::new(buffer)
                 });
-                Box::new(buffer)
-            });
 
             loop {
                 s.broadcast(stream.next().await.expect("Should not end!"))
