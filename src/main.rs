@@ -28,6 +28,9 @@ struct Config {
 
     #[envconfig(from = "SONG_PREFETCH", default = "2")]
     pub song_prefetch: u32,
+
+    #[envconfig(from = "INTERSTITIAL_PATH")]
+    pub interstitial_path: Option<String>,
 }
 
 async fn get_time_file_map(
@@ -53,13 +56,11 @@ async fn get_time_file_map(
             let hour = name_split
                 .next()
                 .ok_or(anyhow::anyhow!("No hour!"))?
-                .parse()
-                .unwrap();
+                .parse()?;
             let minute = name_split
                 .next()
                 .ok_or(anyhow::anyhow!("No minute!"))?
-                .parse()
-                .unwrap();
+                .parse()?;
             let time = chrono::NaiveTime::from_hms_opt(hour, minute, 0)
                 .ok_or(anyhow::anyhow!("Can't parse time"))?;
             Ok::<_, anyhow::Error>((time, path))
@@ -149,8 +150,16 @@ async fn main() -> anyhow::Result<()> {
     let mut time_announce_mixer_controller = mixer_controller.clone();
 
     tokio::task::spawn(async move {
-        let time_file_map =
-            get_time_file_map(&std::path::PathBuf::from("./interstitials/time")).await;
+        if config.interstitial_path.is_none() {
+            println!("No interstitials, skipping interstitial task. Specify a folder with INTERSTITIAL_PATH.");
+            return;
+        }
+
+        let mut time_file_path = std::path::PathBuf::from(config.interstitial_path.unwrap());
+        time_file_path.push("time");
+        println!("Looking for time files at {:?}", time_file_path);
+
+        let time_file_map = get_time_file_map(&time_file_path).await;
         loop {
             tokio::task::yield_now().await;
 
@@ -196,31 +205,36 @@ async fn main() -> anyhow::Result<()> {
                 }
                 .unwrap();
 
-                println!("Next Internstitial time {}", interstitial_time);
+                println!(
+                    "Next Internstitial time {interstitial_time}: {:?}",
+                    next_path
+                );
 
                 tokio::time::sleep_until(
                     tokio::time::Instant::now() + (interstitial_time - now).to_std().unwrap(),
                 )
                 .await;
 
-                println!("Internstitial time  {}", interstitial_time);
+                println!("Playing interstitial {:?}", next_path);
 
-                for v in (fade_steps_min..=fade_steps_max).rev() {
-                    let volume = v as f32 / fade_steps as f32;
-                    announce_downmix_player_controller.set_volume(volume);
-                    tokio::time::sleep(fade_duration / (fade_steps_max - fade_steps_min)).await;
-                }
+                if let Ok(sound) = awedio::sounds::open_file(next_path.as_path()) {
+                    let (sound, completion_notifier) = sound.with_async_completion_notifier();
+                    for v in (fade_steps_min..=fade_steps_max).rev() {
+                        let volume = v as f32 / fade_steps as f32;
+                        announce_downmix_player_controller.set_volume(volume);
+                        tokio::time::sleep(fade_duration / (fade_steps_max - fade_steps_min)).await;
+                    }
 
-                let (sound, completion_notifier) = awedio::sounds::open_file(next_path.as_path())
-                    .unwrap()
-                    .with_async_completion_notifier();
-                time_announce_mixer_controller.add(Box::new(sound));
-                let _ = completion_notifier.await;
+                    time_announce_mixer_controller.add(Box::new(sound));
+                    let _ = completion_notifier.await;
 
-                for v in fade_steps_min..=fade_steps_max {
-                    let volume = v as f32 / fade_steps as f32;
-                    announce_downmix_player_controller.set_volume(volume);
-                    tokio::time::sleep(fade_duration / (fade_steps_max - fade_steps_min)).await;
+                    for v in fade_steps_min..=fade_steps_max {
+                        let volume = v as f32 / fade_steps as f32;
+                        announce_downmix_player_controller.set_volume(volume);
+                        tokio::time::sleep(fade_duration / (fade_steps_max - fade_steps_min)).await;
+                    }
+                } else {
+                    println!("Error playing interstitial");
                 }
             }
         }
