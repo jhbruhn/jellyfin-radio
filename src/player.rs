@@ -1,6 +1,8 @@
 use awedio::NextSample;
 use awedio::Sound;
 use std::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::Notify;
 
 /// Heavily Based on awedios SoundList and Controllable implementations
 
@@ -16,19 +18,18 @@ type Command<S> = Box<dyn FnOnce(&mut S) + Send>;
 pub struct PlayerControllable {
     inner: Player,
     command_receiver: mpsc::Receiver<Command<Player>>,
-    queue_next_song_sender: tokio::sync::watch::Sender<bool>,
+    queue_next_song_notify: Arc<Notify>,
     finished: bool,
 }
 
 pub struct PlayerController {
     command_sender: mpsc::Sender<Command<Player>>,
-    queue_next_song_receiver: tokio::sync::watch::Receiver<bool>,
+    queue_next_song_notify: Arc<Notify>,
 }
 
 impl Player {
     /// Create a new empty Player.
     pub fn new(song_prefetch: u32) -> (PlayerControllable, PlayerController) {
-        let (queue_next_song_sender, queue_next_song_receiver) = tokio::sync::watch::channel(false);
         let inner = Player {
             sounds: Vec::new(),
             was_empty: false,
@@ -36,16 +37,18 @@ impl Player {
             volume_adjustment: 1.0,
         };
 
+        let queue_next_song_notify = Arc::new(tokio::sync::Notify::new());
         let (command_sender, command_receiver) = mpsc::channel::<Command<Player>>();
         let controllable = PlayerControllable {
             inner,
-            queue_next_song_sender,
+            queue_next_song_notify: queue_next_song_notify.clone(),
             command_receiver,
             finished: false,
         };
+
         let controller = PlayerController {
             command_sender,
-            queue_next_song_receiver,
+            queue_next_song_notify,
         };
 
         (controllable, controller)
@@ -64,7 +67,7 @@ impl Player {
     }
 
     fn should_prefetch(&self) -> bool {
-        self.sounds.len() < self.song_prefetch as usize
+        self.sounds.len() <= self.song_prefetch as usize
     }
 }
 
@@ -128,6 +131,14 @@ impl Sound for Player {
     }
 }
 
+impl PlayerControllable {
+    fn notify_next_song_queue_if_needed(&mut self) {
+        if self.inner.should_prefetch() {
+            self.queue_next_song_notify.notify_waiters();
+        }
+    }
+}
+
 impl Sound for PlayerControllable {
     fn channel_count(&self) -> u16 {
         self.inner.channel_count()
@@ -140,9 +151,12 @@ impl Sound for PlayerControllable {
     fn next_sample(&mut self) -> Result<awedio::NextSample, awedio::Error> {
         let next = self.inner.next_sample()?;
         match next {
-            awedio::NextSample::Sample(_)
-            | awedio::NextSample::MetadataChanged
-            | awedio::NextSample::Paused => Ok(next),
+            awedio::NextSample::Sample(_) | awedio::NextSample::Paused => Ok(next),
+            awedio::NextSample::MetadataChanged => {
+                // Maybe a new track has started
+                self.notify_next_song_queue_if_needed();
+                Ok(next)
+            }
             // Since this is controllable we might add another sound later.
             // Ideally we would do this only if the inner sound can have sounds
             // added to it but I don't think we can branch on S: AddSound here.
@@ -169,15 +183,7 @@ impl Sound for PlayerControllable {
                 }
             }
         }
-
-        let _ = self.queue_next_song_sender.send_if_modified(|v| {
-            if *v != self.inner.should_prefetch() {
-                *v = self.inner.should_prefetch();
-                return true;
-            }
-            false
-        });
-
+        self.notify_next_song_queue_if_needed();
         self.inner.on_start_of_batch();
     }
 }
@@ -195,7 +201,7 @@ impl Clone for PlayerController {
     fn clone(&self) -> Self {
         Self {
             command_sender: self.command_sender.clone(),
-            queue_next_song_receiver: self.queue_next_song_receiver.clone(),
+            queue_next_song_notify: self.queue_next_song_notify.clone(),
         }
     }
 }
@@ -210,6 +216,6 @@ impl PlayerController {
     }
 
     pub async fn wait_for_queue(&mut self) {
-        let _ = self.queue_next_song_receiver.wait_for(|v| *v == true).await;
+        self.queue_next_song_notify.notified().await;
     }
 }

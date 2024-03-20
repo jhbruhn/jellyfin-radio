@@ -150,10 +150,12 @@ impl JellyfinClient {
             .map(|s| s.replace("\"", ""));
         let body = response.bytes().await?;
 
-        let decoder = Box::new(awedio::sounds::decoders::SymphoniaDecoder::new(
+        let decoder = awedio::sounds::decoders::SymphoniaDecoder::new(
             Box::new(symphonia::core::io::ReadOnlySource::new(body.reader())),
             extension.as_deref(),
-        )?);
+        )?;
+
+        let decoder = Box::new(decoder);
 
         Ok(decoder)
     }

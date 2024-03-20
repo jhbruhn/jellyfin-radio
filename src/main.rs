@@ -123,7 +123,6 @@ async fn main() -> anyhow::Result<()> {
     let mut announce_downmix_player_controller = player_controller.clone();
     tokio::task::spawn(async move {
         loop {
-            tokio::task::yield_now().await;
             player_controller.wait_for_queue().await;
 
             tracing::info!("Queuing song");
@@ -168,8 +167,6 @@ async fn main() -> anyhow::Result<()> {
 
         let time_file_map = get_time_file_map(&time_file_path).await;
         loop {
-            tokio::task::yield_now().await;
-
             let fade_duration = Duration::from_secs(2);
             let fade_steps = 100;
             let fade_minimum_level = 0.1;
@@ -224,7 +221,9 @@ async fn main() -> anyhow::Result<()> {
 
                 tracing::info!("Playing interstitial {:?}", next_path);
 
-                if let Ok(sound) = awedio::sounds::open_file(next_path.as_path()) {
+                if let Ok(sound) =
+                    tokio::task::block_in_place(|| awedio::sounds::open_file(next_path.as_path()))
+                {
                     let (sound, completion_notifier) = sound.with_async_completion_notifier();
                     for v in (fade_steps_min..=fade_steps_max).rev() {
                         let volume = v as f32 / fade_steps as f32;

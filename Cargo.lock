@@ -83,8 +83,7 @@ dependencies = [
 [[package]]
 name = "awedio"
 version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1e49f94356350dde8c54c5cbde90bdfa5642ab25f9c51c60a9ebdfdf3dbef87"
+source = "git+https://github.com/jhbruhn/awedio.git?branch=symphonia-recover-errors#188442284efea9147e0a37e42edc6ae8ddee10af"
 dependencies = [
  "log",
  "symphonia",

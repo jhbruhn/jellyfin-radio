@@ -14,7 +14,7 @@ use hyper::{Response, StatusCode};
 const SAMPLE_RATE: u64 = 48000;
 const CHANNEL_COUNT: u64 = 2;
 
-const BUFFER_SIZE: usize = 2000; // Should be an integer result of 48000 / 2 / x
+const BUFFER_SIZE: usize = (SAMPLE_RATE / CHANNEL_COUNT / 10) as usize; // Should be an integer result of 48000 / 2 / x
 
 type Chunk = [i16; BUFFER_SIZE];
 
@@ -31,32 +31,31 @@ impl StreamerBackend {
             panic!("expected MetadataChanged event")
         };
 
-        let (mut s, stream_receiver) = async_broadcast::broadcast(3);
+        let (mut s, stream_receiver) = async_broadcast::broadcast(10);
         s.set_overflow(true);
 
         tokio::spawn(async move {
             let mut stream = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(
-                Duration::from_millis(1000 * BUFFER_SIZE as u64 / CHANNEL_COUNT / SAMPLE_RATE),
+                Duration::from_millis((1000 * BUFFER_SIZE as u64) / CHANNEL_COUNT / SAMPLE_RATE),
             ))
             .map(move |_| {
-                let mut buffer = [0_i16; BUFFER_SIZE];
                 renderer.on_start_of_batch();
-                tokio::task::block_in_place(|| {
-                    buffer.fill_with(|| {
-                        let sample = renderer
-                            .next_sample()
-                            .expect("renderer should never return an Error");
-                        let sample = match sample {
-                            awedio::NextSample::Sample(s) => s,
-                            awedio::NextSample::MetadataChanged => {
-                                unreachable!("we never change metadata mid-batch")
-                            }
-                            awedio::NextSample::Paused => 0,
-                            awedio::NextSample::Finished => 0,
-                        };
-                        sample
-                    });
+                let mut buffer: [i16; 2400] = [0_i16; BUFFER_SIZE];
+                buffer.fill_with(|| {
+                    let sample = renderer
+                        .next_sample()
+                        .expect("renderer should never return an Error");
+                    let sample = match sample {
+                        awedio::NextSample::Sample(s) => s,
+                        awedio::NextSample::MetadataChanged => {
+                            unreachable!("we never change metadata mid-batch")
+                        }
+                        awedio::NextSample::Paused => 0,
+                        awedio::NextSample::Finished => 0,
+                    };
+                    sample
                 });
+
                 Box::new(buffer)
             });
 
